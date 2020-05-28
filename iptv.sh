@@ -73,7 +73,7 @@
 
 set -euo pipefail
 
-sh_ver="1.24.0"
+sh_ver="1.25.0"
 sh_debug=0
 SH_LINK="https://raw.githubusercontent.com/woniuzfb/iptv/master/iptv.sh"
 SH_LINK_BACKUP="http://hbo.epub.fun/iptv.sh"
@@ -480,7 +480,7 @@ CheckRelease()
             if [ -e "/etc/apt/sources.list.d/sources-aliyun-0.list" ] 
             then
                 deb_list=$(< "/etc/apt/sources.list.d/sources-aliyun-0.list")
-                rm -rf "/etc/apt/sources.list.d/sources-aliyun-0.list"
+                rm -f "/etc/apt/sources.list.d/sources-aliyun-0.list"
                 rm -rf /var/lib/apt/lists/*
             else
                 deb_list=$(< "/etc/apt/sources.list")
@@ -571,7 +571,7 @@ InstallFfmpeg()
         FFMPEG_PACKAGE_FILE="$IPTV_ROOT/$ffmpeg_package"
         wget --no-check-certificate "$FFMPEG_MIRROR_LINK/builds/$ffmpeg_package" $_PROGRESS_OPT -qO "$FFMPEG_PACKAGE_FILE"
         [ ! -e "$FFMPEG_PACKAGE_FILE" ] && Println "$error ffmpeg 下载失败 !" && exit 1
-        tar -xJf "$FFMPEG_PACKAGE_FILE" -C "$IPTV_ROOT" && rm -rf "${FFMPEG_PACKAGE_FILE:-notfound}"
+        tar -xJf "$FFMPEG_PACKAGE_FILE" -C "$IPTV_ROOT" && rm -f "${FFMPEG_PACKAGE_FILE:-notfound}"
         FFMPEG=$(dirname "$IPTV_ROOT"/ffmpeg-git-*/ffmpeg)
         [ ! -e "$FFMPEG" ] && Println "$error ffmpeg 解压失败 !" && exit 1
         export FFMPEG
@@ -739,7 +739,7 @@ Uninstall()
             crontab -l > "$IPTV_ROOT/cron_tmp" 2> /dev/null || true
             sed -i "#$LOGROTATE_CONFIG#d" "$IPTV_ROOT/cron_tmp"
             crontab "$IPTV_ROOT/cron_tmp" > /dev/null
-            rm -rf "$IPTV_ROOT/cron_tmp"
+            rm -f "$IPTV_ROOT/cron_tmp"
             Println "$info 已停止 logrotate\n"
         fi
         while IFS= read -r chnl_pid
@@ -815,7 +815,7 @@ Update()
         InstallFfmpeg
     fi
 
-    rm -rf "${JQ_FILE:-notfound}"
+    rm -f "${JQ_FILE:-notfound}"
     Println "$info 更新 JQ..."
     InstallJq
 
@@ -830,7 +830,7 @@ Update()
 
     if [ "$sh_new_ver" != "$sh_ver" ] 
     then
-        rm -rf "$LOCK_FILE"
+        rm -f "$LOCK_FILE"
     fi
 
     wget --no-check-certificate "$SH_LINK" -qO "$SH_FILE" && chmod +x "$SH_FILE"
@@ -848,7 +848,7 @@ Update()
         Println "$info iptv 脚本更新完成"
     fi
 
-    rm -rf ${CREATOR_FILE:-notfound}
+    rm -f ${CREATOR_FILE:-notfound}
     Println "$info 更新 Hls Stream Creator 脚本..."
     wget --no-check-certificate "$CREATOR_LINK" -qO "$CREATOR_FILE" && chmod +x "$CREATOR_FILE"
     if [ ! -s "$CREATOR_FILE" ] 
@@ -2055,6 +2055,60 @@ SetStreamLink()
         Println "	直播源: $green $stream_link $plain\n"
         return 0
     fi
+    if [ -n "${chnl_stream_links:-}" ] && [[ $chnl_stream_links == *" "* ]]
+    then
+        Println "是否只是调整频道 ${green}[ $chnl_channel_name ]$plain 直播源顺序? [y/N]"
+        read -p "(默认: N): " stream_links_sort_yn
+        stream_links_sort_yn=${stream_links_sort_yn:-N}
+        if [[ $stream_links_sort_yn == [Yy] ]] 
+        then
+            IFS=" " read -ra stream_links <<< "$chnl_stream_links"
+            stream_links_count=${#stream_links[@]}
+            stream_links_list=""
+            for((i=0;i<stream_links_count;i++));
+            do
+                stream_links_list="$stream_links_list$green$((i+1)).$plain ${stream_links[i]}\n\n"
+            done
+            re=""
+            for((i=stream_links_count;i>0;i--));
+            do
+                [ -n "$re" ] && re="$re "
+                re="$re$i"
+            done
+            Println "$stream_links_list"
+            echo -e "输入新的次序"
+            while read -p "(比如 $re ): " orders_input
+            do
+                IFS=" " read -ra orders <<< "$orders_input"
+                if [ "${#orders[@]}" -eq "$stream_links_count" ] 
+                then
+                    flag=0
+                    for order in "${orders[@]}"
+                    do
+                        if [[ $order == *[!0-9]* ]] || [ "$order" -lt 1 ] || [ "$order" -gt "$stream_links_count" ] || [ "$order" -eq "$flag" ] 
+                        then
+                            Println "$error 输入错误\n"
+                            continue 2
+                        else
+                            flag=$order
+                        fi
+                    done
+
+                    stream_links_input=""
+                    for order in "${orders[@]}"
+                    do
+                        index=$((order-1))
+                        [ -n "$stream_links_input" ] && stream_links_input="$stream_links_input "
+                        stream_links_input="$stream_links_input${stream_links[index]}"
+                    done
+                    break
+                else
+                    Println "$error 输入错误\n"
+                fi
+            done
+            return 0
+        fi
+    fi
     Println "请输入直播源( mpegts / hls / flv / youtube ...)"
     echo -e "$tip 可以是视频路径, 可以输入不同链接地址(监控按顺序尝试使用), 用空格分隔\n"
     read -p "(默认: 取消): " stream_links_input
@@ -2840,9 +2894,9 @@ HandleTerm()
     then
         if [ "$force_exit" -eq 1 ] 
         then
-            kill -9 "$term_child_pid" 2> /dev/null || true
+            kill -9 "$term_child_pid" > /dev/null 2>> "$MONITOR_LOG" || true
         else
-            kill -TERM "$term_child_pid" 2> /dev/null || true
+            kill -TERM "$term_child_pid" > /dev/null 2>> "$MONITOR_LOG" || true
         fi
     else
         term_kill_needed="yes"
@@ -2856,9 +2910,9 @@ WaitTerm()
     then
         if [ "$force_exit" -eq 1 ] 
         then
-            kill -9 "$term_child_pid" 2> /dev/null || true
+            kill -9 "$term_child_pid" > /dev/null 2>> "$MONITOR_LOG" || true
         else
-            kill -TERM "$term_child_pid" 2> /dev/null || true
+            kill -TERM "$term_child_pid" > /dev/null 2>> "$MONITOR_LOG" || true
         fi
     fi
     wait $term_child_pid || true
@@ -2872,7 +2926,7 @@ FlvStreamCreatorWithShift()
     pid="$BASHPID"
     force_exit=1
     mkdir -p "/tmp/flv.lockdir"
-    mkdir -m 755 "/tmp/flv.lockdir/$pid"
+    echo > "/tmp/flv.lockdir/$pid"
     if [[ -n $($JQ_FILE '.channels[]|select(.pid=='"$pid"')' "$CHANNELS_FILE") ]] 
     then
         true &
@@ -2955,7 +3009,7 @@ FlvStreamCreatorWithShift()
                 chnl_pid=$pid
                 action="stop"
                 SyncFile > /dev/null 2>> "$MONITOR_LOG"
-                rm -rf "/tmp/flv.lockdir/$pid"
+                rm -f "/tmp/flv.lockdir/$pid"
             ' EXIT
 
             resolution=""
@@ -3074,7 +3128,7 @@ FlvStreamCreatorWithShift()
                 chnl_pid=$new_pid
                 action="stop"
                 SyncFile > /dev/null 2>> "$MONITOR_LOG"
-                rm -rf "/tmp/flv.lockdir/$chnl_pid"
+                rm -f "/tmp/flv.lockdir/$chnl_pid"
             ' EXIT
 
             resolution=""
@@ -3239,7 +3293,7 @@ FlvStreamCreatorWithShift()
                 chnl_pid=$pid
                 action="stop"
                 SyncFile > /dev/null 2>> "$MONITOR_LOG"
-                rm -rf "/tmp/flv.lockdir/$pid"
+                rm -f "/tmp/flv.lockdir/$pid"
             ' EXIT
 
             resolution=""
@@ -3430,7 +3484,10 @@ HlsStreamCreatorPlus()
                 chnl_pid=$pid
                 action="stop"
                 SyncFile > /dev/null 2>> "$MONITOR_LOG"
-                rm -rf "$output_dir_root"
+                until [ ! -d "$output_dir_root" ]
+                do
+                    rm -rf "$output_dir_root"
+                done
             ' EXIT
 
             resolution=""
@@ -3608,7 +3665,10 @@ HlsStreamCreatorPlus()
                 chnl_pid=$new_pid
                 action="stop"
                 SyncFile > /dev/null 2>> "$MONITOR_LOG"
-                rm -rf "$chnl_output_dir_root"
+                until [ ! -d "$chnl_output_dir_root" ]
+                do
+                    rm -rf "$chnl_output_dir_root"
+                done
             ' EXIT
 
             resolution=""
@@ -3830,7 +3890,10 @@ HlsStreamCreatorPlus()
                 chnl_pid=$pid
                 action="stop"
                 SyncFile > /dev/null 2>> "$MONITOR_LOG"
-                rm -rf "$output_dir_root"
+                until [ ! -d "$output_dir_root" ]
+                do
+                    rm -rf "$output_dir_root"
+                done
             ' EXIT
 
             resolution=""
@@ -4077,7 +4140,10 @@ HlsStreamCreator()
                 chnl_pid=$pid
                 action="stop"
                 SyncFile > /dev/null 2>> "$MONITOR_LOG"
-                rm -rf "$output_dir_root"
+                until [ ! -d "$output_dir_root" ]
+                do
+                    rm -rf "$output_dir_root"
+                done
             ' EXIT
 
             if [ -n "$quality" ] 
@@ -4123,7 +4189,10 @@ HlsStreamCreator()
                 chnl_pid=$new_pid
                 action="stop"
                 SyncFile > /dev/null 2>> "$MONITOR_LOG"
-                rm -rf "$chnl_output_dir_root"
+                until [ ! -d "$chnl_output_dir_root" ]
+                do
+                    rm -rf "$chnl_output_dir_root"
+                done
             ' EXIT
 
             if [ -n "$chnl_quality" ] 
@@ -4213,7 +4282,10 @@ HlsStreamCreator()
                 chnl_pid=$pid
                 action="stop"
                 SyncFile > /dev/null 2>> "$MONITOR_LOG"
-                rm -rf "$output_dir_root"
+                until [ ! -d "$output_dir_root" ]
+                do
+                    rm -rf "$output_dir_root"
+                done
             ' EXIT
 
             if [ -n "$quality" ] 
@@ -4411,7 +4483,7 @@ AddChannel()
         then
             if [ "$sh_debug" -eq 1 ] 
             then
-                ( FlvStreamCreatorWithShift ) &
+                ( FlvStreamCreatorWithShift ) > /dev/null 2>> "$MONITOR_LOG" < /dev/null &
             else
                 ( FlvStreamCreatorWithShift ) > /dev/null 2> /dev/null < /dev/null &
             fi
@@ -4422,14 +4494,14 @@ AddChannel()
     then
         if [ "$sh_debug" -eq 1 ] 
         then
-            ( HlsStreamCreatorPlus ) &
+            ( HlsStreamCreatorPlus ) > /dev/null 2>> "$MONITOR_LOG" < /dev/null &
         else
             ( HlsStreamCreatorPlus ) > /dev/null 2> /dev/null < /dev/null &
         fi
     else
         if [ "$sh_debug" -eq 1 ] 
         then
-            ( HlsStreamCreator ) &
+            ( HlsStreamCreator ) > /dev/null 2>> "$MONITOR_LOG" < /dev/null &
         else
             ( HlsStreamCreator ) > /dev/null 2> /dev/null < /dev/null &
         fi
@@ -5385,11 +5457,11 @@ StartChannel()
         FFMPEG_FLAGS=${FFMPEG_FLAGS//-sc_threshold 0/}
         if [ "$kind" == "flv" ] 
         then
-            rm -rf "$FFMPEG_LOG_ROOT/$chnl_pid.log"
-            rm -rf "$FFMPEG_LOG_ROOT/$chnl_pid.err"
-            if [ "$sh_debug" -eq 1 ] && [ -z "${monitor:-}" ]
+            rm -f "$FFMPEG_LOG_ROOT/$chnl_pid.log"
+            rm -f "$FFMPEG_LOG_ROOT/$chnl_pid.err"
+            if [ "$sh_debug" -eq 1 ] 
             then
-                ( FlvStreamCreatorWithShift ) &
+                ( FlvStreamCreatorWithShift ) > /dev/null 2>> "$MONITOR_LOG" < /dev/null &
             else
                 ( FlvStreamCreatorWithShift ) > /dev/null 2> /dev/null < /dev/null &
             fi
@@ -5401,20 +5473,20 @@ StartChannel()
         then
             Println "$error FLV 频道正开启，走错片场了？\n" && exit 1
         fi
-        rm -rf "$FFMPEG_LOG_ROOT/$chnl_pid.log"
-        rm -rf "$FFMPEG_LOG_ROOT/$chnl_pid.err"
+        rm -f "$FFMPEG_LOG_ROOT/$chnl_pid.log"
+        rm -f "$FFMPEG_LOG_ROOT/$chnl_pid.err"
         if [ -n "${chnl_video_audio_shift:-}" ] || { [ "$chnl_encrypt_yn" == "yes" ] && [ "$chnl_live_yn" == "yes" ]; }
         then
-            if [ "$sh_debug" -eq 1 ] && [ -z "${monitor:-}" ]
+            if [ "$sh_debug" -eq 1 ] 
             then
-                ( HlsStreamCreatorPlus ) &
+                ( HlsStreamCreatorPlus ) > /dev/null 2>> "$MONITOR_LOG" < /dev/null &
             else
                 ( HlsStreamCreatorPlus ) > /dev/null 2> /dev/null < /dev/null &
             fi
         else
-            if [ "$sh_debug" -eq 1 ] && [ -z "${monitor:-}" ]
+            if [ "$sh_debug" -eq 1 ] 
             then
-                ( HlsStreamCreator ) &
+                ( HlsStreamCreator ) > /dev/null 2>> "$MONITOR_LOG" < /dev/null &
             else
                 ( HlsStreamCreator ) > /dev/null 2> /dev/null < /dev/null &
             fi
@@ -5447,12 +5519,10 @@ StopChannel()
             Println "$info 关闭频道, 请稍等..."
             if kill "$chnl_pid" 2> /dev/null
             then
-                until mkdir -m 755 "/tmp/flv.lockdir/$chnl_pid" 2> /dev/null
+                until [ ! -f "/tmp/flv.lockdir/$chnl_pid" ]
                 do
                     sleep 1
-                    rm -rf "/tmp/flv.lockdir/$chnl_pid"
                 done
-                rm -rf "/tmp/flv.lockdir/$chnl_pid"
             else
                 Println "$error 频道关闭失败, 请重试 !" && exit 1
             fi
@@ -5462,7 +5532,7 @@ StopChannel()
             printf '%s\n' "$date_now $chnl_channel_name FLV 关闭" >> "$MONITOR_LOG"
             action="stop"
             SyncFile
-            rm -rf "/tmp/flv.lockdir/$chnl_pid"
+            rm -f "/tmp/flv.lockdir/$chnl_pid"
         fi
         chnl_flv_status="off"
     else
@@ -5471,12 +5541,10 @@ StopChannel()
             Println "$info 关闭频道, 请稍等..."
             if kill "$chnl_pid" 2> /dev/null 
             then
-                until mkdir -m 755 "$chnl_output_dir_root" 2> /dev/null
+                until [ ! -d "$chnl_output_dir_root" ]
                 do
                     sleep 1
-                    rm -rf "$chnl_output_dir_root"
                 done
-                rm -rf "$chnl_output_dir_root"
             else
                 Println "$error 频道关闭失败, 请重试 !\n" && exit 1
             fi
@@ -5486,7 +5554,10 @@ StopChannel()
             printf '%s\n' "$date_now $chnl_channel_name HLS 关闭" >> "$MONITOR_LOG"
             action="stop"
             SyncFile
-            rm -rf "$chnl_output_dir_root"
+            until [ ! -d "$chnl_output_dir_root" ]
+            do
+                rm -rf "$chnl_output_dir_root"
+            done
         fi
         chnl_status="off"
     fi
@@ -5596,8 +5667,8 @@ DelChannel()
             StopChannel
         fi
         JQ delete "$CHANNELS_FILE" channels "$chnl_pid"
-        rm -rf "$FFMPEG_LOG_ROOT/$chnl_pid.log"
-        rm -rf "$FFMPEG_LOG_ROOT/$chnl_pid.err"
+        rm -f "$FFMPEG_LOG_ROOT/$chnl_pid.log"
+        rm -f "$FFMPEG_LOG_ROOT/$chnl_pid.err"
         Println "$info 频道[ $chnl_channel_name ]删除成功 !\n"
     done
 }
@@ -7746,7 +7817,7 @@ TsImg()
                     refresh_img=0
                     base64 -d <<< "${image#*,}" > "$IMG_FILE"
                     /usr/local/bin/imgcat --half-height "$IMG_FILE"
-                    rm -rf "${IMG_FILE:-notfound}"
+                    rm -f "${IMG_FILE:-notfound}"
                     Println "$info 输入图片验证码："
                     read -p "(默认: 刷新验证码): " pincode
                     [ -z "$pincode" ] && refresh_img=1
@@ -7776,7 +7847,7 @@ TsImg()
                 refresh_img=0
                 base64 -d <<< "${image#*,}" > "$IMG_FILE"
                 /usr/local/bin/imgcat --half-height "$IMG_FILE"
-                rm -rf "${IMG_FILE:-notfound}"
+                rm -f "${IMG_FILE:-notfound}"
                 Println "$info 输入图片验证码："
                 read -p "(默认: 刷新验证码): " pincode
                 [ -z "$pincode" ] && refresh_img=1
@@ -8208,7 +8279,7 @@ AntiDDoS()
     trap '' HUP INT
     trap 'MonitorError $LINENO' ERR
     trap '
-        [ -e "/tmp/monitor.lockdir/$BASHPID" ] && rm -rf "/tmp/monitor.lockdir/$BASHPID"
+        [ -e "/tmp/monitor.lockdir/$BASHPID" ] && rm -f "/tmp/monitor.lockdir/$BASHPID"
     ' EXIT
 
     mkdir -p "/tmp/monitor.lockdir" 
@@ -8734,7 +8805,7 @@ MonitorStop()
                 kill "$PID" 2> /dev/null
                 printf '%s\n' "$date_now 关闭监控 PID $PID !" >> "$MONITOR_LOG"
             else
-                rm -rf "/tmp/monitor.lockdir/$PID"
+                rm -f "/tmp/monitor.lockdir/$PID"
             fi
         done
 
@@ -10185,7 +10256,7 @@ Monitor()
     trap 'MonitorError $LINENO' ERR
 
     trap '
-        [ -e "/tmp/monitor.lockdir/$BASHPID" ] && rm -rf "/tmp/monitor.lockdir/$BASHPID"
+        [ -e "/tmp/monitor.lockdir/$BASHPID" ] && rm -f "/tmp/monitor.lockdir/$BASHPID"
         exit 
     ' TERM
 
@@ -10527,7 +10598,7 @@ Monitor()
                             do
                                 old_key_name=${old_key##*/}
                                 old_key_name=${old_key_name%%.*}
-                                [ "$old_key_name" != "${chnls_key_name[i]}" ] && rm -rf "$old_key"
+                                [ "$old_key_name" != "${chnls_key_name[i]}" ] && rm -f "$old_key"
                             done < <(find "$LIVE_ROOT/$output_dir_name/"*.key \! -newermt "-$hls_key_expire_seconds seconds" || true)
 
                             new_key_name=$(RandStr)
@@ -13767,7 +13838,7 @@ NginxDeleteDomain()
     then
         NginxDisableDomain
     fi
-    rm -rf "/usr/local/nginx/conf/sites_available/$server_domain.conf"
+    rm -f "/usr/local/nginx/conf/sites_available/$server_domain.conf"
     Println "$info $server_domain 删除成功\n"
 }
 
@@ -14076,7 +14147,7 @@ NginxEnableDomain()
 
 NginxDisableDomain()
 {
-    rm -rf "/usr/local/nginx/conf/sites_enabled/$server_domain.conf"
+    rm -f "/usr/local/nginx/conf/sites_enabled/$server_domain.conf"
     nginx -s stop 2> /dev/null || true
     nginx
 }
@@ -14787,7 +14858,7 @@ UpdateSelf()
         minor_ver=${d_version#*.}
         minor_ver=${minor_ver%%.*}
 
-        if [ "$major_ver" -eq 1 ] && [ "$minor_ver" -lt 22 ]
+        if [ "$major_ver" -eq 1 ] && [ "$minor_ver" -lt 25 ]
         then
             Println "$info 需要先关闭所有频道，请稍等...\n"
             StopChannelsForce
@@ -16533,9 +16604,9 @@ V2rayDeleteForwardAccount()
                 if [ -z "$accounts_list" ] 
                 then
                     Println "此服务器没有账号，是否删除此服务器 ? [y/N]"
-                    read -p "(默认: N): " delete_server
-                    delete_server=${delete_server:-N}
-                    if [[ $delete_server == [Yy] ]] 
+                    read -p "(默认: N): " delete_server_yn
+                    delete_server_yn=${delete_server_yn:-N}
+                    if [[ $delete_server_yn == [Yy] ]] 
                     then
                         jq_path='["outbounds",'"$outbounds_index"',"settings","vnext"]'
                         JQ delete "$V2_CONFIG" "$vnext_index"
@@ -16649,9 +16720,9 @@ V2rayDeleteForwardAccount()
                 if [ -z "$accounts_list" ] 
                 then
                     Println "此服务器没有账号，是否删除此服务器 ? [y/N]"
-                    read -p "(默认: N): " delete_server
-                    delete_server=${delete_server:-N}
-                    if [[ $delete_server == [Yy] ]] 
+                    read -p "(默认: N): " delete_server_yn
+                    delete_server_yn=${delete_server_yn:-N}
+                    if [[ $delete_server_yn == [Yy] ]] 
                     then
                         jq_path='["outbounds",'"$outbounds_index"',"settings","servers"]'
                         JQ delete "$V2_CONFIG" "$servers_index"
@@ -17778,7 +17849,7 @@ then
 
             if [ "$sh_new_ver" != "$sh_ver" ] 
             then
-                [ -e "$LOCK_FILE" ] && rm -rf "$LOCK_FILE"
+                [ -e "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
             fi
 
             wget --no-check-certificate "$SH_LINK" -qO "$SH_FILE" && chmod +x "$SH_FILE"
@@ -17942,7 +18013,7 @@ $IPTV_ROOT/*.log {
                 crontab -l > "$IPTV_ROOT/cron_tmp" 2> /dev/null || true
                 printf '%s\n' "0 0 * * * $LOGROTATE_FILE $LOGROTATE_CONFIG" >> "$IPTV_ROOT/cron_tmp"
                 crontab "$IPTV_ROOT/cron_tmp" > /dev/null
-                rm -rf "$IPTV_ROOT/cron_tmp"
+                rm -f "$IPTV_ROOT/cron_tmp"
                 Println "$info 日志切割定时任务开启成功 !\n"
             fi
         ;;
@@ -18105,7 +18176,7 @@ then
             Println "$info 检查依赖，耗时可能会很长..."
             CheckRelease
 
-            rm -rf "${JQ_FILE:-notfound}"
+            rm -f "${JQ_FILE:-notfound}"
             Println "$info 更新 JQ...\n"
             InstallJq
 
@@ -18128,7 +18199,7 @@ then
 
             if [ "$sh_new_ver" != "$sh_ver" ] 
             then
-                [ -e "$LOCK_FILE" ] && rm -rf "$LOCK_FILE"
+                [ -e "$LOCK_FILE" ] && rm -f "$LOCK_FILE"
             fi
 
             wget --no-check-certificate "$SH_LINK" -qO "$SH_FILE" && chmod +x "$SH_FILE"
@@ -18452,21 +18523,21 @@ then
                         MonitorSet
                         if [ "$sh_debug" -eq 1 ] 
                         then
-                            ( Monitor ) &
+                            ( Monitor ) >> "$MONITOR_LOG" 2>> "$MONITOR_LOG" < /dev/null &
                         else
-                            ( Monitor ) > /dev/null 2> /dev/null < /dev/null &
+                            ( Monitor ) > /dev/null 2>> "$MONITOR_LOG" < /dev/null &
                         fi
                         Println "$info 监控启动成功 !"
-                        [ -e "$IPTV_ROOT/monitor.pid" ] && rm -rf "$IPTV_ROOT/monitor.pid"
+                        [ -e "$IPTV_ROOT/monitor.pid" ] && rm -f "$IPTV_ROOT/monitor.pid"
                         AntiDDoSSet
                         if [ "$sh_debug" -eq 1 ] 
                         then
-                            ( AntiDDoS ) &
+                            ( AntiDDoS ) >> "$MONITOR_LOG" 2>> "$MONITOR_LOG" < /dev/null &
                         else
-                            ( AntiDDoS ) > /dev/null 2> /dev/null < /dev/null &
+                            ( AntiDDoS ) > /dev/null 2>> "$MONITOR_LOG" < /dev/null &
                         fi
                         Println "$info AntiDDoS 启动成功 !\n"
-                        [ -e "$IPTV_ROOT/ip.pid" ] && rm -rf "$IPTV_ROOT/ip.pid"
+                        [ -e "$IPTV_ROOT/ip.pid" ] && rm -f "$IPTV_ROOT/ip.pid"
                     fi
                 ;;
             esac
@@ -18607,7 +18678,7 @@ case "$cmd" in
                 poppler_name="poppler-0.81.0"
                 if [ ! -e "$FFMPEG_MIRROR_ROOT/$poppler_name.tar.xz" ] 
                 then
-                    rm -rf "$FFMPEG_MIRROR_ROOT/poppler-"*.tar.xz
+                    rm -f "$FFMPEG_MIRROR_ROOT/poppler-"*.tar.xz
                     wget --timeout=10 --tries=3 --no-check-certificate "https://poppler.freedesktop.org/$poppler_name.tar.xz" -qO "$FFMPEG_MIRROR_ROOT/$poppler_name.tar.xz_tmp"
                     mv "$FFMPEG_MIRROR_ROOT/$poppler_name.tar.xz_tmp" "$FFMPEG_MIRROR_ROOT/$poppler_name.tar.xz"
                 fi
@@ -18617,7 +18688,7 @@ case "$cmd" in
                 poppler_data_name=${line%%.tar.gz*}
                 if [ ! -e "$FFMPEG_MIRROR_ROOT/$poppler_data_name.tar.gz" ] 
                 then
-                    rm -rf "$FFMPEG_MIRROR_ROOT/poppler-data-"*.tar.gz
+                    rm -f "$FFMPEG_MIRROR_ROOT/poppler-data-"*.tar.gz
                     wget --timeout=10 --tries=3 --no-check-certificate "https://poppler.freedesktop.org/$poppler_data_name.tar.gz" -qO "$FFMPEG_MIRROR_ROOT/$poppler_data_name.tar.gz_tmp"
                     mv "$FFMPEG_MIRROR_ROOT/$poppler_data_name.tar.gz_tmp" "$FFMPEG_MIRROR_ROOT/$poppler_data_name.tar.gz"
                 fi
@@ -19055,7 +19126,7 @@ else
                         flv_pull_link=${flv_pull_link:-}
                         if [ "$sh_debug" -eq 1 ] 
                         then
-                            ( FlvStreamCreatorWithShift ) &
+                            ( FlvStreamCreatorWithShift ) > /dev/null 2>> "$MONITOR_LOG" < /dev/null &
                         else
                             ( FlvStreamCreatorWithShift ) > /dev/null 2> /dev/null < /dev/null &
                         fi
@@ -19067,14 +19138,14 @@ else
             then
                 if [ "$sh_debug" -eq 1 ] 
                 then
-                    ( HlsStreamCreatorPlus ) &
+                    ( HlsStreamCreatorPlus ) > /dev/null 2>> "$MONITOR_LOG" < /dev/null &
                 else
                     ( HlsStreamCreatorPlus ) > /dev/null 2> /dev/null < /dev/null &
                 fi
             else
                 if [ "$sh_debug" -eq 1 ] 
                 then
-                    ( HlsStreamCreator ) &
+                    ( HlsStreamCreator ) > /dev/null 2>> "$MONITOR_LOG" < /dev/null &
                 else
                     ( HlsStreamCreator ) > /dev/null 2> /dev/null < /dev/null &
                 fi
